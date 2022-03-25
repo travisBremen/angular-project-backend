@@ -1,45 +1,50 @@
-const bodyParser = require('body-parser')
 const express = require('express');
 const cors = require('cors');
+const _ = require('lodash');
 const userList = require('./users');
 
 const app = express()
 const port = 3000
 const users = userList.data;
 
-// app.use(express.json());
-app.use(bodyParser.json());
-
+app.use(express.json());
 app.use(cors());
 
 app.get('/', (req, res) => {
     res.send('Hello Hello Hello');
 })
 
-app.get('/api/users', (req, res) => {
-    res.status(200).json(users);
-})
+// app.get('/api/users', (req, res) => {
+//     res.status(200).json(users);
+// })
 
-app.get('/api/users/:userId', (req, res) => {
-    const userId = req.params.userId;
-    for (let user of users) {
-        if (user.id.toString() === userId) {
-            res.status(200).json(user);
-            return;
-        }
+app.get('/api/users', (req, res) => {
+    if (!req.query.id) {
+        res.status(200).json(users);
+        return;
     }
 
-    res.status(400).send('400 Bad Request: Invalid user ID');
+    const userId = req.query.id;
+
+    let user = _.find(users, {id: Number(userId)});
+    if (!user) {
+        res.status(400).send('400 Bad Request: Invalid user ID');
+        return;
+    }
+
+    res.status(200).json(user);
 })
 
-app.put('/api/users/:userId', (req, res) => {
+app.put('/api/users', (req, res) => {
     if (!req.body['id']) {
         res.status(400).send('400 Bad Request: Empty update info');
         return;
     }
 
-    let targetUsers = users.filter(user => user.id === req.body.id);
-    if (targetUsers.length !== 1) {
+    const userId = req.query.id;
+
+    let user = _.find(users, {id: Number(userId)});
+    if (!user) {
         res.status(400).send('400 Bad Request: Invalid user ID');
         return;
     }
@@ -48,17 +53,16 @@ app.put('/api/users/:userId', (req, res) => {
     res.status(200).json(req.body);
 })
 
-//todo: query
-app.delete('/api/users/:userId', (req, res) => {
-    const userId = req.params.userId;
-    for (let user of users) {
-        if (user.id.toString() === userId) {
-            res.sendStatus(204);
-            return;
-        }
+app.delete('/api/users', (req, res) => {
+    const userId = req.query.id;
+
+    let user = _.find(users, {id: Number(userId)});
+    if (!user) {
+        res.status(400).send('400 Bad Request: Invalid user ID');
+        return;
     }
 
-    res.status(400).send('400 Bad Request: Invalid user ID');
+    res.sendStatus(204);
 })
 
 app.get('/broken', (req, res) => {
