@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const {Sequelize, DataTypes} = require('sequelize');
 const config = require('./config');
@@ -15,14 +16,13 @@ const sequelize = new Sequelize(config.database, config.username, config.passwor
     dialect: 'mysql'
 });
 
-// todo: db table and column naming
-// todo: db design, relationship
+// todo: db table and column naming / sync / timestamps
 // todo: file structure
 // todo: avatar column: jpg / file storage
 
 // Model definition
-const User = sequelize.define('User', {
-    id : {
+const User = sequelize.define('CustomModelNameWhenTableNameIsSet', {
+    id: {
         type: DataTypes.INTEGER.UNSIGNED,
         autoIncrement: true,
         primaryKey: true,
@@ -45,19 +45,24 @@ const User = sequelize.define('User', {
         allowNull: false
     }
 }, {
-    timestamps: false
+    timestamps: false,
+    tableName: 'users'
 });
 
 (async () => {
+    console.log('Module absolute path:', __dirname);
     // Testing the connection
     try {
-        // await sequelize.authenticate();
-        // console.log('Connection has been established successfully.');
+        await sequelize.authenticate();
+        console.log('Connection has been established successfully.');
+
+        // start the server if success
+        app.listen(port, () => {
+            console.log(`Listening on port ${port}`);
+        })
     } catch (error) {
         console.error('Unable to connect to the database:', error);
     }
-
-    // todo: Model synchronization
 })();
 
 app.get('/', (req, res) => {
@@ -103,8 +108,7 @@ app.put('/api/users', async (req, res) => {
         return;
     }
 
-    // todo: 这里看不到吗？ Executing (default):
-    //  UPDATE `Users` SET `first_name`=?,`last_name`=?,`email`=? WHERE `id` = ?
+    // todo: 这里看不到吗？ Executing (default): UPDATE `Users` SET `first_name`=?,`last_name`=?,`email`=? WHERE `id` = ?
     user.set({
         first_name: req.body['firstName'],
         last_name: req.body['lastName'],
@@ -130,20 +134,40 @@ app.delete('/api/users', async (req, res) => {
     res.sendStatus(204);
 })
 
+// todo: router
+// todo: other middleware?
+
+// TODO path definition
+app.get('/img/:name', (req, res, next) => {
+    const name = req.params.name;
+    const filePath = path.join(__dirname, 'img', name);
+    console.log('Get file from path:', filePath);
+    // TODO 同步异步？
+    res.sendFile(filePath, (err) => {
+        if (err) {
+            // next(err);
+            console.error(err.stack);
+            // TODO 400还是404呢？
+            res.status(400).send('Bad Request: No such file!');
+        } else {
+            console.log('Sent:', name);
+        }
+    });
+});
+
 app.get('/broken', (req, res) => {
     throw new Error('Broken!');
 });
 
+// 给前端看的，不是给用户看的，response里包含了所有404的信息
+// TODO 如果访问url是前端没有定义的呢？或者是直接访问url呢？
+//  => 服务器返回的页面？
 app.use('/*', (req, res) => {
-    res.status(404).send(`404 Not Found. Cannot ${req.method} ${req.originalUrl}`);
+    res.status(404).send(`Page Not Found. Cannot ${req.method} ${req.originalUrl}`);
 });
 
 // Express 的自定义错误处理函数
 app.use((err, req, res, next) => {
-    console.error(err.stack);
+    console.error('Internal Server Error:', err.stack);
     res.sendStatus(500);
 });
-
-app.listen(port, () => {
-    console.log(`Example app listening on port ${port}`)
-})
