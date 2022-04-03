@@ -3,6 +3,8 @@ const path = require('path');
 const cors = require('cors');
 const {Sequelize, DataTypes} = require('sequelize');
 const config = require('./config');
+const fs = require('fs');
+const mime = require('mime-types');
 
 const app = express();
 const port = 3000;
@@ -16,7 +18,7 @@ const sequelize = new Sequelize(config.database, config.username, config.passwor
     dialect: 'mysql'
 });
 
-// todo: db table and column naming / sync / timestamps
+// todo: db table and column naming / model sync => timestamps
 // todo: file structure
 // todo: avatar column: jpg / file storage
 
@@ -42,7 +44,13 @@ const User = sequelize.define('CustomModelNameWhenTableNameIsSet', {
     },
     avatar: {
         type: DataTypes.STRING,
-        allowNull: false
+        allowNull: false,
+        get() {
+            // todo 将数据库column "avatar"的索引数据转换成服务器的文件路径
+            // TODO 为什么返回的路径是两个斜杠 //
+            let fileName = this.getDataValue('avatar') + '.jpg';
+            return path.join(__dirname, 'img', fileName);
+        }
     }
 }, {
     timestamps: false,
@@ -50,7 +58,6 @@ const User = sequelize.define('CustomModelNameWhenTableNameIsSet', {
 });
 
 (async () => {
-    console.log('Module absolute path:', __dirname);
     // Testing the connection
     try {
         await sequelize.authenticate();
@@ -67,7 +74,7 @@ const User = sequelize.define('CustomModelNameWhenTableNameIsSet', {
 
 app.get('/', (req, res) => {
     res.send('Hello Hello Hello');
-})
+});
 
 // todo: .ts
 app.get('/api/users', async (req, res) => {
@@ -81,8 +88,7 @@ app.get('/api/users', async (req, res) => {
     }
 
     // get single user
-    const userId = req.query.id;
-    const user = await User.findByPk(userId);
+    const user = await User.findByPk(req.query.id);
     if (!user) {
         console.log('Not found!');
         res.status(400).send('400 Bad Request: Invalid user ID');
@@ -91,7 +97,7 @@ app.get('/api/users', async (req, res) => {
     console.log('User:', user.toJSON());
 
     res.status(200).json(user);
-})
+});
 
 app.put('/api/users', async (req, res) => {
     if (!req.body['id']) {
@@ -99,8 +105,31 @@ app.put('/api/users', async (req, res) => {
         return;
     }
 
-    const userId = req.query.id;
-    console.log(req.body);
+    console.log('PUT /api/users request body:', req.body);
+
+    const user = await User.findByPk(req.query.id);
+    if (!user) {
+        console.log('Not found!');
+        res.status(400).send('400 Bad Request: Invalid user ID');
+        return;
+    }
+
+    // 调用model.save()才会将set的数据发送到数据库，而update()会直接同步到数据库
+    user.set({
+        first_name: req.body['first_name'],
+        last_name: req.body['last_name'],
+        email: req.body['email']
+    });
+    // todo: 这里看不到吗？ Executing (default): UPDATE `Users` SET `first_name`=?,`last_name`=?,`email`=? WHERE `id` = ?
+    await user.save();
+
+    res.status(200).json(req.body);
+});
+
+app.put('/img', async (req, res) => {
+    console.log('PUT /img request body:', req.body);
+
+    const userId = req.query.id
     const user = await User.findByPk(userId);
     if (!user) {
         console.log('Not found!');
@@ -108,22 +137,39 @@ app.put('/api/users', async (req, res) => {
         return;
     }
 
-    // todo: 这里看不到吗？ Executing (default): UPDATE `Users` SET `first_name`=?,`last_name`=?,`email`=? WHERE `id` = ?
-    user.set({
-        first_name: req.body['firstName'],
-        last_name: req.body['lastName'],
-        email: req.body['email']
-    });
-    await user.save();
+    const contentType = req.headers['content-type'];
+    console.log('Request body content-type:', contentType);
 
-    res.status(200).json(req.body);
-})
+    const extension = mime.extension(contentType);
+    if (extension !== 'jpeg' && extension !== 'png' && extension !== 'gif') {
+        console.log('Invalid request body type!');
+        res.status(400).send('400 Bad Request: Invalid request body type');
+        return;
+    }
+
+    // TODO 这里extension都统一存储成jpg格式，不然在img endpoint很难获取各自的格式
+    const filePath = './img/' + userId + '.jpg';
+    // const filePath = './img/' + userId + '.' + extension;
+    let writeStream = fs.createWriteStream(filePath);
+    req.pipe(writeStream);
+
+    req.on('end', () => {
+        console.log('Persist image file to path:', filePath);
+        user.update({avatar: userId.toString()});
+
+        // TODO 返回status code还是文件？
+        res.sendStatus(200);
+    });
+
+    writeStream.on('error', (err) => {
+        console.error(err.stack);
+    });
+});
 
 // todo: post
 
 app.delete('/api/users', async (req, res) => {
-    const userId = req.query.id;
-    const user = await User.findByPk(userId);
+    const user = await User.findByPk(req.query.id);
     if (!user) {
         console.log('Not found!');
         res.status(400).send('400 Bad Request: Invalid user ID');
@@ -137,11 +183,16 @@ app.delete('/api/users', async (req, res) => {
 // todo: router
 // todo: other middleware?
 
-// TODO path definition
 app.get('/img/:name', (req, res, next) => {
-    const name = req.params.name;
-    const filePath = path.join(__dirname, 'img', name);
+    const fileName = req.params.name;
+
+    // TODO 是用这个本地绝对路径吗 => __dirname还是localhost
+    // const filePath = path.join(__dirname, 'img', fileName);
+    const filePath = __dirname + req.url;
     console.log('Get file from path:', filePath);
+
+    // TODO 定义url / filePath 要不要带文件格式 => 都可以，跟avatar的getter统一就行
+
     // TODO 同步异步？
     res.sendFile(filePath, (err) => {
         if (err) {
@@ -150,7 +201,7 @@ app.get('/img/:name', (req, res, next) => {
             // TODO 400还是404呢？
             res.status(400).send('Bad Request: No such file!');
         } else {
-            console.log('Sent:', name);
+            console.log('Sent:', fileName);
         }
     });
 });
