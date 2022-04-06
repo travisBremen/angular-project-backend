@@ -2,15 +2,33 @@ const express = require('express');
 const path = require('path');
 const cors = require('cors');
 const {Sequelize, DataTypes} = require('sequelize');
+const multer = require('multer');
 const config = require('./config');
-const fs = require('fs');
-const mime = require('mime-types');
 
 const app = express();
-const port = 3000;
-
 app.use(express.json());
 app.use(cors());
+
+const PORT = 3000;
+const HOST = 'http://localhost:3000/';
+const IMAGE_DIR = 'img';
+
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, path.join(__dirname, IMAGE_DIR));
+    },
+    filename: function (req, file, cb) {
+        // todo date format
+        cb(null, file.fieldname + '-' + Date.now() + path.extname(file.originalname));
+    }
+});
+const upload = multer({storage: storage});
+
+// todo: router
+// todo: other middleware?
+// TODO remove obsolete images
+// TODO post request
+// todo: .ts
 
 // Connecting to a database
 const sequelize = new Sequelize(config.database, config.username, config.password, {
@@ -20,7 +38,6 @@ const sequelize = new Sequelize(config.database, config.username, config.passwor
 
 // todo: db table and column naming / model sync => timestamps
 // todo: file structure
-// todo: avatar column: jpg / file storage
 
 // Model definition
 const User = sequelize.define('CustomModelNameWhenTableNameIsSet', {
@@ -45,12 +62,6 @@ const User = sequelize.define('CustomModelNameWhenTableNameIsSet', {
     avatar: {
         type: DataTypes.STRING,
         allowNull: false,
-        get() {
-            // todo 将数据库column "avatar"的索引数据转换成服务器的文件路径
-            // TODO 为什么返回的路径是两个斜杠 //
-            let fileName = this.getDataValue('avatar') + '.jpg';
-            return path.join(__dirname, 'img', fileName);
-        }
     }
 }, {
     timestamps: false,
@@ -64,8 +75,8 @@ const User = sequelize.define('CustomModelNameWhenTableNameIsSet', {
         console.log('Connection has been established successfully.');
 
         // start the server if success
-        app.listen(port, () => {
-            console.log(`Listening on port ${port}`);
+        app.listen(PORT, () => {
+            console.log(`Listening on port ${PORT}`);
         })
     } catch (error) {
         console.error('Unable to connect to the database:', error);
@@ -76,7 +87,6 @@ app.get('/', (req, res) => {
     res.send('Hello Hello Hello');
 });
 
-// todo: .ts
 app.get('/api/users', async (req, res) => {
     // get all users
     if (!req.query.id) {
@@ -120,16 +130,15 @@ app.put('/api/users', async (req, res) => {
         last_name: req.body['last_name'],
         email: req.body['email']
     });
-    // todo: 这里看不到吗？ Executing (default): UPDATE `Users` SET `first_name`=?,`last_name`=?,`email`=? WHERE `id` = ?
     await user.save();
 
     res.status(200).json(req.body);
 });
 
-app.put('/img', async (req, res) => {
-    console.log('PUT /img request body:', req.body);
+app.post('/img', upload.single('avatar'), async (req, res, next) => {
+    console.log('POST /img req file:', req.file);
 
-    const userId = req.query.id
+    const userId = req.query.id;
     const user = await User.findByPk(userId);
     if (!user) {
         console.log('Not found!');
@@ -137,36 +146,26 @@ app.put('/img', async (req, res) => {
         return;
     }
 
-    const contentType = req.headers['content-type'];
-    console.log('Request body content-type:', contentType);
-
-    const extension = mime.extension(contentType);
-    if (extension !== 'jpeg' && extension !== 'png' && extension !== 'gif') {
-        console.log('Invalid request body type!');
-        res.status(400).send('400 Bad Request: Invalid request body type');
+    const file = req.file;
+    if (!file) {
+        // const error = new Error('Please upload a file');
+        // error.httpStatusCode = 400;
+        // return next(error);
+        console.log('Invalid file');
+        res.status(400).send('400 Bad Request: Invalid file');
         return;
     }
 
-    // TODO 这里extension都统一存储成jpg格式，不然在img endpoint很难获取各自的格式
-    const filePath = './img/' + userId + '.jpg';
-    // const filePath = './img/' + userId + '.' + extension;
-    let writeStream = fs.createWriteStream(filePath);
-    req.pipe(writeStream);
+    // TODO: 没有HOST的话默认是前端地址而不是后端？ 前端的avatar是直接放在img src里的
+    let fileUrl = HOST + IMAGE_DIR + '/' + file.filename;
 
-    req.on('end', () => {
-        console.log('Persist image file to path:', filePath);
-        user.update({avatar: userId.toString()});
+    // persistence
+    // await user.update({avatar: fileUrl});
 
-        // TODO 返回status code还是文件？
-        res.sendStatus(200);
-    });
-
-    writeStream.on('error', (err) => {
-        console.error(err.stack);
-    });
+    // todo why send() not working in the front-end?
+    res.status(201).json(fileUrl);
+    // res.status(201).send(fileUrl);
 });
-
-// todo: post
 
 app.delete('/api/users', async (req, res) => {
     const user = await User.findByPk(req.query.id);
@@ -180,44 +179,37 @@ app.delete('/api/users', async (req, res) => {
     res.sendStatus(204);
 })
 
-// todo: router
-// todo: other middleware?
+// Serving static files
+app.use('/img', express.static(IMAGE_DIR));
 
-app.get('/img/:name', (req, res, next) => {
-    const fileName = req.params.name;
-
-    // TODO 是用这个本地绝对路径吗 => __dirname还是localhost
-    // const filePath = path.join(__dirname, 'img', fileName);
-    const filePath = __dirname + req.url;
-    console.log('Get file from path:', filePath);
-
-    // TODO 定义url / filePath 要不要带文件格式 => 都可以，跟avatar的getter统一就行
-
-    // TODO 同步异步？
-    res.sendFile(filePath, (err) => {
-        if (err) {
-            // next(err);
-            console.error(err.stack);
-            // TODO 400还是404呢？
-            res.status(400).send('Bad Request: No such file!');
-        } else {
-            console.log('Sent:', fileName);
-        }
-    });
-});
+// 定义了跟静态文件服务器一样的地址
+// app.get('/img/:name', (req, res, next) => {
+//     const filePath = __dirname + req.url;
+//     console.log('Get file from path:', filePath);
+//
+//     res.sendFile(filePath, (err) => {
+//         if (err) {
+//             // next(err); // pass error to default(built-in) or custom error handler
+//             console.error(err.stack);
+//             res.status(404).send('404 Not Found: No such file!');
+//         } else {
+//             console.log('Sent:', path.basename(filePath));
+//         }
+//     });
+// });
 
 app.get('/broken', (req, res) => {
     throw new Error('Broken!');
 });
 
-// 给前端看的，不是给用户看的，response里包含了所有404的信息
-// TODO 如果访问url是前端没有定义的呢？或者是直接访问url呢？
-//  => 服务器返回的页面？
+// Express默认返回404 Cannot GET /* 处理访问了不存在的路径，以下自定义了一个router middleware去处理404(自定义返回的内容形式)；
+// => 其实可以用默认的功能然后交由前端处理
+// 给前端看的，不是给用户看的，response里包含了所有信息 => 前端用router处理
 app.use('/*', (req, res) => {
     res.status(404).send(`Page Not Found. Cannot ${req.method} ${req.originalUrl}`);
 });
 
-// Express 的自定义错误处理函数
+// 自定义错误处理函数
 app.use((err, req, res, next) => {
     console.error('Internal Server Error:', err.stack);
     res.sendStatus(500);
