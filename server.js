@@ -18,14 +18,12 @@ const storage = multer.diskStorage({
         cb(null, path.join(__dirname, IMAGE_DIR));
     },
     filename: function (req, file, cb) {
-        // todo date format
         cb(null, file.fieldname + '-' + Date.now() + path.extname(file.originalname));
     }
 });
 const upload = multer({storage: storage});
 
-// todo: router
-// todo: other middleware?
+// todo: router / other middleware?
 // TODO remove obsolete images
 // TODO post request
 // todo: .ts
@@ -36,7 +34,6 @@ const sequelize = new Sequelize(config.database, config.username, config.passwor
     dialect: 'mysql'
 });
 
-// todo: db table and column naming / model sync => timestamps
 // todo: file structure
 
 // Model definition
@@ -47,11 +44,11 @@ const User = sequelize.define('CustomModelNameWhenTableNameIsSet', {
         primaryKey: true,
         allowNull: false
     },
-    first_name: {
+    firstName: {
         type: DataTypes.STRING(20),
         allowNull: false
     },
-    last_name: {
+    lastName: {
         type: DataTypes.STRING(20),
         allowNull: false
     },
@@ -64,11 +61,15 @@ const User = sequelize.define('CustomModelNameWhenTableNameIsSet', {
         allowNull: false,
     }
 }, {
-    timestamps: false,
-    tableName: 'users'
+    tableName: 'users',
+    underscored: true // set the field option on all attributes to the snake_case version of its name
 });
 
 (async () => {
+    // This checks what is the current state of the table in the database
+    // (which columns it has, what are their data types, etc),
+    // and then performs the necessary changes in the table to make it match the model.
+    await User.sync({alter: true});
     // Testing the connection
     try {
         await sequelize.authenticate();
@@ -126,13 +127,13 @@ app.put('/api/users', async (req, res) => {
 
     // 调用model.save()才会将set的数据发送到数据库，而update()会直接同步到数据库
     user.set({
-        first_name: req.body['first_name'],
-        last_name: req.body['last_name'],
+        firstName: req.body['firstName'],
+        lastName: req.body['lastName'],
         email: req.body['email']
     });
     await user.save();
 
-    res.status(200).json(req.body);
+    res.status(200).json(user);
 });
 
 app.post('/img', upload.single('avatar'), async (req, res, next) => {
@@ -160,7 +161,7 @@ app.post('/img', upload.single('avatar'), async (req, res, next) => {
     let fileUrl = HOST + IMAGE_DIR + '/' + file.filename;
 
     // persistence
-    // await user.update({avatar: fileUrl});
+    await user.update({avatar: fileUrl});
 
     // todo why send() not working in the front-end?
     res.status(201).json(fileUrl);
