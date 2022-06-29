@@ -8,10 +8,8 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-// TODO remove obsolete images
-// TODO post request
 // todo: .ts
 
 (async () => {
@@ -49,6 +47,6 @@ app.use('/*', (req, res) => {
 
 // 自定义错误处理函数 => express有built-in的errorHandler
 app.use((err, req, res, next) => {
-    console.error('Internal Server Error:', err.stack);
-    res.sendStatus(500);
+    console.error(err.stack);
+    res.status(500).send('Something broke!');
 });
